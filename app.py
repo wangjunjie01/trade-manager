@@ -662,37 +662,47 @@ def render_supply_chain_page():
     # 添加供应商表单
     if st.session_state.get("show_add_supplier", False):
         with st.expander("➕ 添加新供应商", expanded=True):
-            with st.form("add_supplier", clear_on_submit=True):
+            with st.form(f"add_supplier_{datetime.now().microsecond}", clear_on_submit=True):
                 st.markdown("### 📋 基本信息")
                 col1, col2 = st.columns(2)
                 with col1:
-                    name = st.text_input("单位名称 *", placeholder="输入供应商名称")
-                    address = st.text_input("地址", placeholder="输入详细地址")
-                    legal_person = st.text_input("法人", placeholder="输入法人姓名")
+                    name = st.text_input("单位名称 *", placeholder="输入供应商名称", key="supplier_name")
+                    address = st.text_input("地址", placeholder="输入详细地址", key="supplier_address")
+                    legal_person = st.text_input("法人", placeholder="输入法人姓名", key="supplier_legal")
                 with col2:
-                    phone = st.text_input("电话", placeholder="输入联系电话")
-                    credit_code = st.text_input("统一社会信用代码", placeholder="18位统一社会信用代码")
-                    business_desc = st.text_input("相关业务", placeholder="主营业务描述")
+                    phone = st.text_input("电话", placeholder="输入联系电话", key="supplier_phone")
+                    credit_code = st.text_input("统一社会信用代码", placeholder="18位统一社会信用代码", key="supplier_credit")
+                    business_desc = st.text_input("相关业务", placeholder="主营业务描述", key="supplier_biz")
                 
                 col3, col4 = st.columns(2)
                 with col3:
-                    bank_name = st.text_input("开户银行", placeholder="开户银行名称")
+                    bank_name = st.text_input("开户银行", placeholder="开户银行名称", key="supplier_bank")
                 with col4:
-                    bank_account = st.text_input("银行账号", placeholder="银行账号")
+                    bank_account = st.text_input("银行账号", placeholder="银行账号", key="supplier_account")
                 
-                if st.form_submit_button("💾 保存供应商"):
+                col_submit, col_cancel = st.columns([1, 1])
+                with col_submit:
+                    submitted = st.form_submit_button("💾 保存供应商")
+                with col_cancel:
+                    cancelled = st.form_submit_button("取消")
+                
+                if cancelled:
+                    st.session_state["show_add_supplier"] = False
+                    st.rerun()
+                
+                if submitted:
                     if name:
                         supplier_id = hashlib.md5(str(datetime.now()).encode()).hexdigest()[:12]
                         new_supplier = {
                             "id": supplier_id,
                             "name": name,
-                            "address": address,
-                            "legal_person": legal_person,
-                            "phone": phone,
-                            "credit_code": credit_code,
-                            "bank_name": bank_name,
-                            "bank_account": bank_account,
-                            "business_desc": business_desc
+                            "address": address or "",
+                            "legal_person": legal_person or "",
+                            "phone": phone or "",
+                            "credit_code": credit_code or "",
+                            "bank_name": bank_name or "",
+                            "bank_account": bank_account or "",
+                            "business_desc": business_desc or ""
                         }
                         if supabase_insert("suppliers", new_supplier):
                             st.success("✅ 供应商添加成功！")
@@ -703,10 +713,6 @@ def render_supply_chain_page():
                             st.error("❌ 添加失败，请确保已在 Supabase 创建表")
                     else:
                         st.error("请输入单位名称")
-                
-                if st.button("取消", key="cancel_add_supplier"):
-                    st.session_state["show_add_supplier"] = False
-                    st.rerun()
     
     # 供应商详情
     if selected:
@@ -742,7 +748,7 @@ def render_supply_chain_page():
             contacts = load_supplier_contacts(supplier["id"])
             
             with st.expander("➕ 添加人员", expanded=False):
-                with st.form(f"add_contact_{supplier['id']}"):
+                with st.form(f"add_contact_{supplier['id']}_{datetime.now().microsecond}"):
                     c1, c2 = st.columns(2)
                     with c1:
                         c_name = st.text_input("姓名 *", placeholder="人员姓名")
@@ -760,16 +766,18 @@ def render_supply_chain_page():
                                 "id": hashlib.md5(str(datetime.now()).encode()).hexdigest()[:12],
                                 "supplier_id": supplier["id"],
                                 "name": c_name,
-                                "position": c_position,
+                                "position": c_position or "",
                                 "company": c_company or supplier["name"],
-                                "phone": c_phone,
-                                "wechat": c_wechat,
-                                "remark": c_remark
+                                "phone": c_phone or "",
+                                "wechat": c_wechat or "",
+                                "remark": c_remark or ""
                             }
                             if supabase_insert("supplier_contacts", new_contact):
                                 st.success("✅ 人员添加成功！")
                                 st.cache_data.clear()
                                 st.rerun()
+                            else:
+                                st.error("❌ 添加失败，请检查数据")
                         else:
                             st.error("请输入姓名")
             
@@ -790,19 +798,22 @@ def render_supply_chain_page():
             materials = load_supplier_materials(supplier["id"])
             
             with st.expander("➕ 添加物料", expanded=False):
-                with st.form(f"add_material_{supplier['id']}"):
+                with st.form(f"add_material_{supplier['id']}_{datetime.now().microsecond}"):
                     m1, m2, m3 = st.columns(3)
                     with m1:
                         m_name = st.text_input("物料名称 *", placeholder="物料名称")
                         m_spec = st.text_input("规格", placeholder="规格型号")
                     with m2:
                         m_unit = st.text_input("单位", placeholder="如：个、米、吨")
-                        m_price_excl = st.number_input("不含税单价", min_value=0.0, step=0.01, format="%.2f")
+                        m_price_excl = st.number_input("不含税单价 (元)", min_value=0.0, step=0.01, format="%.2f", key="price_excl")
                     with m3:
-                        m_tax_rate = st.selectbox("税率", options=[0.13, 0.09, 0.06, 0.03, 0.0], index=0, format_func=lambda x: f"{x*100:.0f}%")
-                        m_incl_tax = st.number_input("含税单价", min_value=0.0, step=0.01, format="%.2f", value=m_price_excl * (1 + m_tax_rate))
+                        tax_options = {"13%": 0.13, "9%": 0.09, "6%": 0.06, "3%": 0.03, "0%": 0.0}
+                        m_tax_label = st.selectbox("税率", options=list(tax_options.keys()), index=0, key="tax_select")
+                        m_tax_rate = tax_options[m_tax_label]
+                        m_incl_tax = st.number_input("含税单价 (元)", min_value=0.0, step=0.01, format="%.2f", 
+                            value=m_price_excl * (1 + m_tax_rate), key="price_incl")
                     
-                    m_freight = st.selectbox("是否含运", options=["否", "是"])
+                    m_freight = st.selectbox("是否含运", options=["否", "是"], key="freight_select")
                     m_remark = st.text_input("备注", placeholder="其他说明")
                     
                     if st.form_submit_button("💾 保存物料"):
@@ -811,18 +822,20 @@ def render_supply_chain_page():
                                 "id": hashlib.md5(str(datetime.now()).encode()).hexdigest()[:12],
                                 "supplier_id": supplier["id"],
                                 "name": m_name,
-                                "spec": m_spec,
-                                "unit": m_unit,
+                                "spec": m_spec or "",
+                                "unit": m_unit or "",
                                 "price_excl_tax": float(m_price_excl),
                                 "tax_rate": float(m_tax_rate),
                                 "price_incl_tax": float(m_incl_tax),
                                 "includes_freight": m_freight,
-                                "remark": m_remark
+                                "remark": m_remark or ""
                             }
                             if supabase_insert("supplier_materials", new_material):
                                 st.success("✅ 物料添加成功！")
                                 st.cache_data.clear()
                                 st.rerun()
+                            else:
+                                st.error("❌ 添加失败，请检查数据")
                         else:
                             st.error("请输入物料名称")
             
