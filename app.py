@@ -36,9 +36,9 @@ def init_auth_state():
     if "page" not in st.session_state:
         st.session_state.page = "送货单"
 
-def check_user_exists(email):
+def check_user_exists(username):
     """检查用户是否存在"""
-    url = f"{SUPABASE_URL}/rest/v1/users?email=eq.{email}"
+    url = f"{SUPABASE_URL}/rest/v1/users?username=eq.{username}"
     resp = requests.get(url, headers=HEADERS)
     if resp.status_code == 200 and resp.json():
         return resp.json()[0]
@@ -52,43 +52,67 @@ def get_all_users():
         return resp.json()
     return []
 
-def verify_user(email, password):
+def verify_user(username, password):
     """验证用户登录"""
-    user = check_user_exists(email)
+    user = check_user_exists(username)
     if user:
         password_hash = hashlib.sha256(password.encode()).hexdigest()
         if user.get("password_hash") == password_hash:
             return user
     return None
 
-def login_user(email, name):
+def login_user(username, name):
     """登录用户"""
     st.session_state.authenticated = True
-    st.session_state.user = {"email": email, "name": name}
+    st.session_state.user = {"username": username, "name": name}
 
 def logout_user():
     """登出用户"""
     st.session_state.authenticated = False
     st.session_state.user = None
 
+def update_password(username, new_password):
+    """更新密码"""
+    url = f"{SUPABASE_URL}/rest/v1/users?username=eq.{username}"
+    password_hash = hashlib.sha256(new_password.encode()).hexdigest()
+    data = {"password_hash": password_hash}
+    try:
+        resp = requests.patch(url, headers=SERVICE_HEADERS, json=data)
+        return resp.status_code in [200, 201, 204]
+    except:
+        return False
+
+def create_user_in_db(username, password, name, role="user"):
+    """在数据库中创建用户"""
+    password_hash = hashlib.sha256(password.encode()).hexdigest()
+    user_id = hashlib.md5(username.encode()).hexdigest()[:12]
+    
+    user_data = {
+        "id": user_id,
+        "username": username,
+        "password_hash": password_hash,
+        "name": name,
+        "role": role,
+        "created_at": datetime.now().isoformat()
+    }
+    
+    url = f"{SUPABASE_URL}/rest/v1/users"
+    try:
+        resp = requests.post(url, headers=SERVICE_HEADERS, json=user_data)
+        return resp.status in [200, 201, 204]
+    except:
+        return False
+
 # ============ 登录页面 ============
 def render_login_page():
     """渲染登录页面"""
     st.markdown("""
     <style>
-    .login-container {
-        max-width: 400px;
-        margin: 100px auto;
-        padding: 40px;
-        background: white;
-        border-radius: 10px;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-    }
     .login-title {
         text-align: center;
         color: #1f77b4;
-        font-size: 2rem;
-        margin-bottom: 30px;
+        font-size: 2.5rem;
+        margin-bottom: 40px;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -96,18 +120,18 @@ def render_login_page():
     st.markdown('<h1 class="login-title">📦 贸易管理系统</h1>', unsafe_allow_html=True)
     
     with st.form("login_form", clear_on_submit=True):
-        email = st.text_input("📧 邮箱", placeholder="输入邮箱地址")
+        username = st.text_input("👤 账号", placeholder="输入账号")
         password = st.text_input("🔒 密码", type="password", placeholder="输入密码")
         
         st.form_submit_button("登录", use_container_width=True)
         
-        if email and password:
-            user = verify_user(email, password)
+        if username and password:
+            user = verify_user(username, password)
             if user:
-                login_user(email, user.get("name", email.split("@")[0]))
+                login_user(username, user.get("name", username))
                 st.success("✅ 登录成功！")
                 st.rerun()
-            elif check_user_exists(email):
+            elif check_user_exists(username):
                 st.error("❌ 密码错误")
             else:
                 st.error("❌ 账号不存在，请联系管理员创建")
@@ -202,6 +226,11 @@ def render_sidebar():
         
         st.divider()
         
+        # 用户管理入口（仅管理员可见）
+        if st.button("⚙️ 用户管理", use_container_width=True):
+            st.session_state.page = "用户管理"
+            st.rerun()
+        
         col1, col2 = st.columns(2)
         with col1:
             if st.button("🔄", help="刷新数据"):
@@ -215,6 +244,65 @@ def render_sidebar():
         st.caption(f"🕐 {datetime.now().strftime('%H:%M:%S')}")
     
     return st.session_state.get("page", "送货单")
+
+# ============ 用户管理页面 ============
+def render_user_management_page():
+    st.markdown("## ⚙️ 用户管理")
+    
+    # 修改密码
+    with st.expander("🔑 修改密码", expanded=True):
+        with st.form("change_password"):
+            current_user = st.session_state.user.get("username", "")
+            st.text_input("账号", value=current_user, disabled=True)
+            new_password = st.text_input("新密码", type="password", placeholder="输入新密码（至少6位）")
+            confirm_password = st.text_input("确认新密码", type="password", placeholder="再次输入新密码")
+            
+            if st.form_submit_button("修改密码"):
+                if len(new_password) < 6:
+                    st.error("❌ 密码至少需要6位")
+                elif new_password != confirm_password:
+                    st.error("❌ 两次密码不一致")
+                else:
+                    if update_password(current_user, new_password):
+                        st.success("✅ 密码修改成功！")
+                    else:
+                        st.error("❌ 修改失败，请重试")
+    
+    # 创建新用户（仅管理员）
+    with st.expander("➕ 创建新用户", expanded=False):
+        with st.form("create_user"):
+            new_username = st.text_input("账号", placeholder="输入新账号")
+            new_name = st.text_input("姓名", placeholder="输入用户姓名")
+            new_password = st.text_input("密码", type="password", placeholder="设置密码（至少6位）")
+            confirm_password = st.text_input("确认密码", type="password", placeholder="再次输入密码")
+            
+            if st.form_submit_button("创建用户"):
+                if not new_username or not new_name:
+                    st.error("❌ 请填写完整信息")
+                elif len(new_password) < 6:
+                    st.error("❌ 密码至少需要6位")
+                elif new_password != confirm_password:
+                    st.error("❌ 两次密码不一致")
+                elif check_user_exists(new_username):
+                    st.error("❌ 该账号已存在")
+                else:
+                    if create_user_in_db(new_username, new_password, new_name):
+                        st.success("✅ 用户创建成功！")
+                    else:
+                        st.error("❌ 创建失败，请重试")
+    
+    # 用户列表
+    st.markdown("### 用户列表")
+    users = get_all_users()
+    if users:
+        df = pd.DataFrame(users)
+        display_cols = ["username", "name", "role", "created_at"]
+        cols = [c for c in display_cols if c in df.columns]
+        df_display = df[cols].copy()
+        df_display.columns = ["账号", "姓名", "角色", "创建时间"]
+        st.dataframe(df_display, use_container_width=True)
+    else:
+        st.info("暂无用户")
 
 # ============ 客户管理 ============
 def render_client_page():
@@ -329,7 +417,7 @@ def render_delivery_page():
                         qty = st.number_input("数量", min_value=1, value=1, key=f"qty_{item}")
                     with cols[2]:
                         st.write(f"¥{float(price) * qty:.2f}")
-                    items_data.append({"name": name, "price": float(price), "qty": qty})
+                    items_data.append({"Name": name, "price": float(price), "qty": qty})
             else:
                 st.warning("请先添加产品")
                 items_data = []
@@ -352,7 +440,7 @@ def render_delivery_page():
                         for item in items_data:
                             item_rec = {
                                 "delivery_id": delivery_id,
-                                "product_name": item["name"],
+                                "product_name": item["Name"],
                                 "price": item["price"],
                                 "qty": item["qty"],
                                 "subtotal": item["price"] * item["qty"]
@@ -550,6 +638,8 @@ def main():
             render_payment_page()
         elif page == "对账":
             render_reconciliation_page()
+        elif page == "用户管理":
+            render_user_management_page()
 
 if __name__ == "__main__":
     main()
