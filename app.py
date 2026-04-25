@@ -44,22 +44,13 @@ def check_user_exists(email):
         return resp.json()[0]
     return None
 
-def create_user(email, password, name):
-    """创建用户"""
-    user_id = hashlib.md5(email.encode()).hexdigest()[:12]
-    password_hash = hashlib.sha256(password.encode()).hexdigest()
-    
-    user_data = {
-        "id": user_id,
-        "email": email,
-        "password_hash": password_hash,
-        "name": name,
-        "created_at": datetime.now().isoformat()
-    }
-    
-    url = f"{SUPABASE_URL}/rest/v1/users"
-    resp = requests.post(url, headers=SERVICE_HEADERS, json=user_data)
-    return resp.status_code in [200, 201, 204]
+def get_all_users():
+    """获取所有用户"""
+    url = f"{SUPABASE_URL}/rest/v1/users?order=created_at.desc"
+    resp = requests.get(url, headers=HEADERS)
+    if resp.status_code == 200:
+        return resp.json()
+    return []
 
 def verify_user(email, password):
     """验证用户登录"""
@@ -104,54 +95,24 @@ def render_login_page():
     
     st.markdown('<h1 class="login-title">📦 贸易管理系统</h1>', unsafe_allow_html=True)
     
-    tab1, tab2 = st.tabs(["🔐 登录", "📝 注册"])
+    with st.form("login_form", clear_on_submit=True):
+        email = st.text_input("📧 邮箱", placeholder="输入邮箱地址")
+        password = st.text_input("🔒 密码", type="password", placeholder="输入密码")
+        
+        st.form_submit_button("登录", use_container_width=True)
+        
+        if email and password:
+            user = verify_user(email, password)
+            if user:
+                login_user(email, user.get("name", email.split("@")[0]))
+                st.success("✅ 登录成功！")
+                st.rerun()
+            elif check_user_exists(email):
+                st.error("❌ 密码错误")
+            else:
+                st.error("❌ 账号不存在，请联系管理员创建")
     
-    with tab1:
-        with st.form("login_form", clear_on_submit=True):
-            email = st.text_input("📧 邮箱", placeholder="输入邮箱地址")
-            password = st.text_input("🔒 密码", type="password", placeholder="输入密码")
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                st.form_submit_button("登录", use_container_width=True)
-            with col2:
-                if st.form_submit_button("测试账号登录", use_container_width=True):
-                    email = "demo@trade.com"
-                    password = "demo123"
-            
-            if email and password:
-                user = verify_user(email, password)
-                if user:
-                    login_user(email, user.get("name", email.split("@")[0]))
-                    st.success("✅ 登录成功！")
-                    st.rerun()
-                elif check_user_exists(email):
-                    st.error("❌ 密码错误")
-                else:
-                    st.info("ℹ️ 该账号不存在，请先注册")
-    
-    with tab2:
-        with st.form("register_form", clear_on_submit=True):
-            new_name = st.text_input("👤 姓名", placeholder="输入你的名字")
-            new_email = st.text_input("📧 邮箱", placeholder="输入邮箱地址")
-            new_password = st.text_input("🔒 密码", type="password", placeholder="设置密码（至少6位）")
-            confirm_password = st.text_input("🔒 确认密码", type="password", placeholder="再次输入密码")
-            
-            st.form_submit_button("注册", use_container_width=True)
-            
-            if new_email and new_password and confirm_password:
-                if len(new_password) < 6:
-                    st.error("❌ 密码至少需要6位")
-                elif new_password != confirm_password:
-                    st.error("❌ 两次密码不一致")
-                elif check_user_exists(new_email):
-                    st.error("❌ 该邮箱已注册")
-                else:
-                    if create_user(new_email, new_password, new_name):
-                        st.success("✅ 注册成功！请登录")
-                        st.rerun()
-                    else:
-                        st.error("❌ 注册失败，请重试")
+    st.info("💡 没有账号？请联系管理员创建")
 
 # ============ Supabase API 操作 ============
 def supabase_select(table, params=""):
