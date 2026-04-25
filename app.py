@@ -637,207 +637,305 @@ def render_reconciliation_page():
         else:
             st.info("该客户暂无送货记录")
 
-# ============ 上游供应链管理 ============
-def render_supply_chain_page():
-    st.markdown("## 🏭 上游供应链管理")
+# ============ 弹窗表单函数 ============
+def render_add_supplier_modal():
+    """新增供应商弹窗"""
+    # 初始化弹窗状态
+    if "show_supplier_modal" not in st.session_state:
+        st.session_state["show_supplier_modal"] = False
     
-    suppliers = load_suppliers()
-    
-    # 选择供应商或新增
+    # 点击按钮打开弹窗
     col1, col2 = st.columns([3, 1])
     with col1:
-        if suppliers:
-            selected = st.selectbox("选择供应商", 
-                options=[""] + [s["name"] for s in suppliers], 
-                key="supplier_select")
-        else:
-            st.info("暂无供应商，请先添加")
-            selected = ""
+        st.markdown("### 🏭 上游供应链管理")
     with col2:
-        st.markdown("")  # 占位
-        st.markdown("")
-        if st.button("➕ 添加供应商", use_container_width=True):
-            st.session_state["show_add_supplier"] = True
+        if st.button("➕ 添加供应商", type="primary"):
+            st.session_state["show_supplier_modal"] = True
     
-    # 添加供应商表单
-    if st.session_state.get("show_add_supplier", False):
-        with st.expander("➕ 添加新供应商", expanded=True):
-            with st.form(f"add_supplier_{datetime.now().microsecond}", clear_on_submit=True):
-                st.markdown("### 📋 基本信息")
-                col1, col2 = st.columns(2)
-                with col1:
-                    name = st.text_input("单位名称 *", placeholder="输入供应商名称", key="supplier_name")
-                    address = st.text_input("地址", placeholder="输入详细地址", key="supplier_address")
-                    legal_person = st.text_input("法人", placeholder="输入法人姓名", key="supplier_legal")
-                with col2:
-                    phone = st.text_input("电话", placeholder="输入联系电话", key="supplier_phone")
-                    credit_code = st.text_input("统一社会信用代码", placeholder="18位统一社会信用代码", key="supplier_credit")
-                    business_desc = st.text_input("相关业务", placeholder="主营业务描述", key="supplier_biz")
+    # 弹窗内容
+    if st.session_state["show_supplier_modal"]:
+        with st.container():
+            # 弹窗样式
+            st.markdown("""
+            <style>
+            div[data-testid="stHorizontalBlock"] > div:nth-child(1) {
+                background-color: #f8f9fa;
+                padding: 20px;
+                border-radius: 10px;
+                border: 1px solid #dee2e6;
+            }
+            </style>
+            """, unsafe_allow_html=True)
+            
+            st.markdown("### ➕ 新增供应商")
+            
+            with st.form("add_supplier_form", clear_on_submit=True):
+                # 基本信息
+                st.markdown("**📋 基本信息**")
+                c1, c2 = st.columns(2)
+                with c1:
+                    name = st.text_input("单位名称 *", placeholder="必填", key="modal_name")
+                with c2:
+                    phone = st.text_input("电话", placeholder="联系电话", key="modal_phone")
                 
-                col3, col4 = st.columns(2)
-                with col3:
-                    bank_name = st.text_input("开户银行", placeholder="开户银行名称", key="supplier_bank")
-                with col4:
-                    bank_account = st.text_input("银行账号", placeholder="银行账号", key="supplier_account")
+                c3, c4 = st.columns(2)
+                with c3:
+                    address = st.text_input("地址", placeholder="详细地址", key="modal_address")
+                with c4:
+                    legal_person = st.text_input("法人", placeholder="法人姓名", key="modal_legal")
                 
-                col_submit, col_cancel = st.columns([1, 1])
-                with col_submit:
-                    submitted = st.form_submit_button("💾 保存供应商")
-                with col_cancel:
-                    cancelled = st.form_submit_button("取消")
+                c5, c6 = st.columns(2)
+                with c5:
+                    credit_code = st.text_input("统一社会信用代码", placeholder="18位代码", key="modal_credit")
+                with c6:
+                    business_desc = st.text_input("相关业务", placeholder="主营业务", key="modal_biz")
                 
-                if cancelled:
-                    st.session_state["show_add_supplier"] = False
+                # 银行信息
+                st.markdown("**🏦 银行信息**")
+                c7, c8 = st.columns(2)
+                with c7:
+                    bank_name = st.text_input("开户银行", placeholder="银行名称", key="modal_bank")
+                with c8:
+                    bank_account = st.text_input("银行账号", placeholder="账号", key="modal_account")
+                
+                # 按钮
+                col_save, col_close = st.columns(2)
+                with col_save:
+                    submitted = st.form_submit_button("💾 保存", type="primary", use_container_width=True)
+                with col_close:
+                    closed = st.form_submit_button("关闭", use_container_width=True)
+                
+                if closed:
+                    st.session_state["show_supplier_modal"] = False
                     st.rerun()
                 
                 if submitted:
-                    if name:
+                    if not name:
+                        st.error("❌ 单位名称不能为空")
+                    else:
                         supplier_id = hashlib.md5(str(datetime.now()).encode()).hexdigest()[:12]
                         new_supplier = {
                             "id": supplier_id,
                             "name": name,
+                            "phone": phone or "",
                             "address": address or "",
                             "legal_person": legal_person or "",
-                            "phone": phone or "",
                             "credit_code": credit_code or "",
+                            "business_desc": business_desc or "",
                             "bank_name": bank_name or "",
-                            "bank_account": bank_account or "",
-                            "business_desc": business_desc or ""
+                            "bank_account": bank_account or ""
                         }
                         if supabase_insert("suppliers", new_supplier):
                             st.success("✅ 供应商添加成功！")
-                            st.session_state["show_add_supplier"] = False
+                            st.session_state["show_supplier_modal"] = False
+                            st.session_state["selected_supplier"] = name
                             st.cache_data.clear()
                             st.rerun()
                         else:
-                            st.error("❌ 添加失败，请确保已在 Supabase 创建表")
+                            st.error("❌ 添加失败，请检查数据库连接")
+
+def render_add_contact_modal(supplier_id, supplier_name):
+    """新增联系人弹窗"""
+    if "show_contact_modal" not in st.session_state:
+        st.session_state["show_contact_modal"] = False
+    
+    if st.button("➕ 添加人员", type="primary"):
+        st.session_state["show_contact_modal"] = True
+    
+    if st.session_state["show_contact_modal"]:
+        st.markdown("### ➕ 添加人员")
+        
+        with st.form("add_contact_form", clear_on_submit=True):
+            c1, c2 = st.columns(2)
+            with c1:
+                c_name = st.text_input("姓名 *", placeholder="必填", key="contact_name")
+            with c2:
+                c_position = st.text_input("职务", placeholder="如：采购经理", key="contact_position")
+            
+            c3, c4 = st.columns(2)
+            with c3:
+                c_phone = st.text_input("联系电话", placeholder="手机号码", key="contact_phone")
+            with c4:
+                c_wechat = st.text_input("微信", placeholder="微信号", key="contact_wechat")
+            
+            c_company = st.text_input("所属公司", value=supplier_name, key="contact_company")
+            c_remark = st.text_input("备注", placeholder="其他说明", key="contact_remark")
+            
+            col_save, col_close = st.columns(2)
+            with col_save:
+                submitted = st.form_submit_button("💾 保存", type="primary", use_container_width=True)
+            with col_close:
+                closed = st.form_submit_button("关闭", use_container_width=True)
+            
+            if closed:
+                st.session_state["show_contact_modal"] = False
+                st.rerun()
+            
+            if submitted:
+                if not c_name:
+                    st.error("❌ 姓名不能为空")
+                else:
+                    new_contact = {
+                        "id": hashlib.md5(str(datetime.now()).encode()).hexdigest()[:12],
+                        "supplier_id": supplier_id,
+                        "name": c_name,
+                        "position": c_position or "",
+                        "phone": c_phone or "",
+                        "wechat": c_wechat or "",
+                        "company": c_company or supplier_name,
+                        "remark": c_remark or ""
+                    }
+                    if supabase_insert("supplier_contacts", new_contact):
+                        st.success("✅ 人员添加成功！")
+                        st.session_state["show_contact_modal"] = False
+                        st.cache_data.clear()
+                        st.rerun()
                     else:
-                        st.error("请输入单位名称")
+                        st.error("❌ 添加失败")
+
+def render_add_material_modal(supplier_id):
+    """新增物料弹窗"""
+    if "show_material_modal" not in st.session_state:
+        st.session_state["show_material_modal"] = False
+    
+    if st.button("➕ 添加物料", type="primary"):
+        st.session_state["show_material_modal"] = True
+    
+    if st.session_state["show_material_modal"]:
+        st.markdown("### ➕ 添加物料")
+        
+        with st.form("add_material_form", clear_on_submit=True):
+            c1, c2 = st.columns(2)
+            with c1:
+                m_name = st.text_input("物料名称 *", placeholder="必填", key="material_name")
+            with c2:
+                m_spec = st.text_input("规格", placeholder="规格型号", key="material_spec")
+            
+            c3, c4 = st.columns(2)
+            with c3:
+                m_unit = st.text_input("单位", placeholder="如：个、米、吨", key="material_unit")
+            with c4:
+                m_price_excl = st.number_input("不含税单价 (元)", min_value=0.0, step=0.01, format="%.2f", key="material_price_excl")
+            
+            c5, c6 = st.columns(2)
+            with c5:
+                tax_options = {"13%": 0.13, "9%": 0.09, "6%": 0.06, "3%": 0.03, "0%": 0.0}
+                m_tax_label = st.selectbox("税率", options=list(tax_options.keys()), index=0, key="material_tax")
+                m_tax_rate = tax_options[m_tax_label]
+            with c6:
+                m_incl_tax = st.number_input("含税单价 (元)", min_value=0.0, step=0.01, format="%.2f", 
+                    value=round(m_price_excl * (1 + m_tax_rate), 2), key="material_price_incl")
+            
+            m_freight = st.selectbox("是否含运", options=["否", "是"], key="material_freight")
+            m_remark = st.text_input("备注", placeholder="其他说明", key="material_remark")
+            
+            col_save, col_close = st.columns(2)
+            with col_save:
+                submitted = st.form_submit_button("💾 保存", type="primary", use_container_width=True)
+            with col_close:
+                closed = st.form_submit_button("关闭", use_container_width=True)
+            
+            if closed:
+                st.session_state["show_material_modal"] = False
+                st.rerun()
+            
+            if submitted:
+                if not m_name:
+                    st.error("❌ 物料名称不能为空")
+                else:
+                    new_material = {
+                        "id": hashlib.md5(str(datetime.now()).encode()).hexdigest()[:12],
+                        "supplier_id": supplier_id,
+                        "name": m_name,
+                        "spec": m_spec or "",
+                        "unit": m_unit or "",
+                        "price_excl_tax": float(m_price_excl),
+                        "tax_rate": float(m_tax_rate),
+                        "price_incl_tax": float(m_incl_tax),
+                        "includes_freight": m_freight,
+                        "remark": m_remark or ""
+                    }
+                    if supabase_insert("supplier_materials", new_material):
+                        st.success("✅ 物料添加成功！")
+                        st.session_state["show_material_modal"] = False
+                        st.cache_data.clear()
+                        st.rerun()
+                    else:
+                        st.error("❌ 添加失败")
+
+# ============ 上游供应链管理 ============
+def render_supply_chain_page():
+    """上游供应链管理主页面"""
+    suppliers = load_suppliers()
+    
+    # 供应商选择
+    if not suppliers:
+        st.info("📭 暂无供应商，请点击上方「➕ 添加供应商」创建")
+        st.session_state["selected_supplier"] = None
+    else:
+        supplier_names = [s["name"] for s in suppliers]
+        default_idx = 0
+        if st.session_state.get("selected_supplier") in supplier_names:
+            default_idx = supplier_names.index(st.session_state["selected_supplier"])
+        
+        selected = st.selectbox("选择供应商", options=supplier_names, index=default_idx, key="supplier_select")
+        st.session_state["selected_supplier"] = selected
     
     # 供应商详情
-    if selected:
-        supplier = next((s for s in suppliers if s["name"] == selected), None)
+    if st.session_state.get("selected_supplier"):
+        selected_name = st.session_state["selected_supplier"]
+        supplier = next((s for s in suppliers if s["name"] == selected_name), None)
+        
         if supplier:
             st.markdown("---")
-            st.markdown(f"### 📋 {supplier['name']} - 基本信息")
             
-            # 基本信息卡片
-            info_cols = {
-                "单位名称": supplier.get("name", "-"),
-                "地址": supplier.get("address", "-"),
-                "法人": supplier.get("legal_person", "-"),
-                "电话": supplier.get("phone", "-"),
-                "统一社会信用代码": supplier.get("credit_code", "-"),
-                "开户银行": supplier.get("bank_name", "-"),
-                "银行账号": supplier.get("bank_account", "-"),
-                "相关业务": supplier.get("business_desc", "-")
-            }
+            # 基本信息
+            st.markdown("#### 📋 基本信息")
+            cols = st.columns(3)
+            with cols[0]:
+                st.text_input("单位名称", value=supplier.get("name", "-"), disabled=True)
+            with cols[1]:
+                st.text_input("法人", value=supplier.get("legal_person", "-") or "-", disabled=True)
+            with cols[2]:
+                st.text_input("电话", value=supplier.get("phone", "-") or "-", disabled=True)
             
-            # 显示为两列布局
-            items = list(info_cols.items())
-            mid = len(items) // 2
-            col1, col2 = st.columns(2)
-            for i, (key, val) in enumerate(items):
-                with col1 if i < mid else col2:
-                    st.text_input(f"📌 {key}", value=val, disabled=True, key=f"info_{key}")
+            cols2 = st.columns(3)
+            with cols2[0]:
+                st.text_input("地址", value=supplier.get("address", "-") or "-", disabled=True)
+            with cols2[1]:
+                st.text_input("统一社会信用代码", value=supplier.get("credit_code", "-") or "-", disabled=True)
+            with cols2[2]:
+                st.text_input("相关业务", value=supplier.get("business_desc", "-") or "-", disabled=True)
             
-            # 人员信息标签页
+            cols3 = st.columns(2)
+            with cols3[0]:
+                st.text_input("开户银行", value=supplier.get("bank_name", "-") or "-", disabled=True)
+            with cols3[1]:
+                st.text_input("银行账号", value=supplier.get("bank_account", "-") or "-", disabled=True)
+            
+            # 人员信息
             st.markdown("---")
-            st.markdown("### 👥 人员信息")
-            
+            st.markdown("#### 👥 人员信息")
             contacts = load_supplier_contacts(supplier["id"])
             
-            with st.expander("➕ 添加人员", expanded=False):
-                with st.form(f"add_contact_{supplier['id']}_{datetime.now().microsecond}"):
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        c_name = st.text_input("姓名 *", placeholder="人员姓名")
-                        c_position = st.text_input("职务", placeholder="如：采购经理")
-                    with c2:
-                        c_phone = st.text_input("联系电话", placeholder="手机号码")
-                        c_wechat = st.text_input("微信", placeholder="微信号")
-                    
-                    c_company = st.text_input("所属公司", placeholder="所属公司（可填供应商名称）")
-                    c_remark = st.text_input("备注", placeholder="其他说明")
-                    
-                    if st.form_submit_button("💾 保存人员"):
-                        if c_name:
-                            new_contact = {
-                                "id": hashlib.md5(str(datetime.now()).encode()).hexdigest()[:12],
-                                "supplier_id": supplier["id"],
-                                "name": c_name,
-                                "position": c_position or "",
-                                "company": c_company or supplier["name"],
-                                "phone": c_phone or "",
-                                "wechat": c_wechat or "",
-                                "remark": c_remark or ""
-                            }
-                            if supabase_insert("supplier_contacts", new_contact):
-                                st.success("✅ 人员添加成功！")
-                                st.cache_data.clear()
-                                st.rerun()
-                            else:
-                                st.error("❌ 添加失败，请检查数据")
-                        else:
-                            st.error("请输入姓名")
+            render_add_contact_modal(supplier["id"], supplier["name"])
             
             if contacts:
                 contacts_df = pd.DataFrame(contacts)
-                display_cols = ["name", "position", "company", "phone", "wechat", "remark"]
+                display_cols = ["name", "position", "phone", "wechat", "company", "remark"]
                 available = [c for c in display_cols if c in contacts_df.columns]
                 contacts_df = contacts_df[available].copy()
-                contacts_df.columns = ["姓名", "职务", "所属公司", "电话", "微信", "备注"]
-                st.dataframe(contacts_df, use_container_width=True)
+                contacts_df.columns = ["姓名", "职务", "电话", "微信", "所属公司", "备注"]
+                st.dataframe(contacts_df, use_container_width=True, hide_index=True)
             else:
                 st.info("暂无人员信息")
             
-            # 物料信息标签页
+            # 物料信息
             st.markdown("---")
-            st.markdown("### 📦 相关物料")
-            
+            st.markdown("#### 📦 相关物料")
             materials = load_supplier_materials(supplier["id"])
             
-            with st.expander("➕ 添加物料", expanded=False):
-                with st.form(f"add_material_{supplier['id']}_{datetime.now().microsecond}"):
-                    m1, m2, m3 = st.columns(3)
-                    with m1:
-                        m_name = st.text_input("物料名称 *", placeholder="物料名称")
-                        m_spec = st.text_input("规格", placeholder="规格型号")
-                    with m2:
-                        m_unit = st.text_input("单位", placeholder="如：个、米、吨")
-                        m_price_excl = st.number_input("不含税单价 (元)", min_value=0.0, step=0.01, format="%.2f", key="price_excl")
-                    with m3:
-                        tax_options = {"13%": 0.13, "9%": 0.09, "6%": 0.06, "3%": 0.03, "0%": 0.0}
-                        m_tax_label = st.selectbox("税率", options=list(tax_options.keys()), index=0, key="tax_select")
-                        m_tax_rate = tax_options[m_tax_label]
-                        m_incl_tax = st.number_input("含税单价 (元)", min_value=0.0, step=0.01, format="%.2f", 
-                            value=m_price_excl * (1 + m_tax_rate), key="price_incl")
-                    
-                    m_freight = st.selectbox("是否含运", options=["否", "是"], key="freight_select")
-                    m_remark = st.text_input("备注", placeholder="其他说明")
-                    
-                    if st.form_submit_button("💾 保存物料"):
-                        if m_name:
-                            new_material = {
-                                "id": hashlib.md5(str(datetime.now()).encode()).hexdigest()[:12],
-                                "supplier_id": supplier["id"],
-                                "name": m_name,
-                                "spec": m_spec or "",
-                                "unit": m_unit or "",
-                                "price_excl_tax": float(m_price_excl),
-                                "tax_rate": float(m_tax_rate),
-                                "price_incl_tax": float(m_incl_tax),
-                                "includes_freight": m_freight,
-                                "remark": m_remark or ""
-                            }
-                            if supabase_insert("supplier_materials", new_material):
-                                st.success("✅ 物料添加成功！")
-                                st.cache_data.clear()
-                                st.rerun()
-                            else:
-                                st.error("❌ 添加失败，请检查数据")
-                        else:
-                            st.error("请输入物料名称")
+            render_add_material_modal(supplier["id"])
             
             if materials:
                 materials_df = pd.DataFrame(materials)
@@ -845,28 +943,28 @@ def render_supply_chain_page():
                 available = [c for c in display_cols if c in materials_df.columns]
                 materials_df = materials_df[available].copy()
                 materials_df.columns = ["物料名称", "规格", "单位", "不含税单价", "税率", "含税单价", "含运", "备注"]
-                # 格式化显示
                 materials_df["不含税单价"] = materials_df["不含税单价"].apply(lambda x: f"¥{float(x):.2f}")
                 materials_df["含税单价"] = materials_df["含税单价"].apply(lambda x: f"¥{float(x):.2f}")
                 materials_df["税率"] = materials_df["税率"].apply(lambda x: f"{float(x)*100:.0f}%")
-                st.dataframe(materials_df, use_container_width=True)
+                st.dataframe(materials_df, use_container_width=True, hide_index=True)
             else:
                 st.info("暂无物料信息")
     
     # 供应商总览
     if suppliers:
         st.markdown("---")
-        st.markdown("### 📊 供应商总览")
-        
-        overview_cols = ["name", "legal_person", "phone", "business_desc"]
+        st.markdown("#### 📊 供应商总览")
         df = pd.DataFrame(suppliers)
+        overview_cols = ["name", "legal_person", "phone", "business_desc"]
         available = [c for c in overview_cols if c in df.columns]
         if available:
             df_overview = df[available].copy()
             df_overview.columns = ["单位名称", "法人", "电话", "相关业务"]
-            st.dataframe(df_overview, use_container_width=True)
-        
-        st.markdown(f"**共 {len(suppliers)} 家供应商**")
+            st.dataframe(df_overview, use_container_width=True, hide_index=True)
+        st.caption(f"共 {len(suppliers)} 家供应商")
+    
+    # 渲染新增供应商弹窗
+    render_add_supplier_modal()
 
 
 # ============ 主程序 ============
