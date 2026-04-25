@@ -1,0 +1,477 @@
+"""
+贸易公司内部管理系统 - MVP (Supabase版)
+送货单管理 & 对账系统 - 数据持久化
+"""
+import streamlit as st
+import pandas as pd
+from datetime import datetime, date
+import hashlib
+import requests
+
+# ============ Supabase 配置 ============
+SUPABASE_URL = "https://tuzfagnvwmnsojxvdyvd.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR1emZhZ252d21uc29qeHZkeXZkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcwOTY0NDQsImV4cCI6MjA5MjY3MjQ0NH0.Fdxv-Xg1fW1oVKswXo5qqlMxGThUra3nAm33VtFsF2Q"
+
+HEADERS = {
+    "apikey": SUPABASE_KEY,
+    "Authorization": f"Bearer {SUPABASE_KEY}",
+    "Content-Type": "application/json"
+}
+
+# ============ Supabase API 操作 ============
+def supabase_select(table, params=""):
+    """查询数据"""
+    url = f"{SUPABASE_URL}/rest/v1/{table}{params}"
+    try:
+        resp = requests.get(url, headers=HEADERS)
+        if resp.status_code == 200:
+            return resp.json()
+        else:
+            st.error(f"查询失败: {resp.text}")
+            return []
+    except Exception as e:
+        st.error(f"连接错误: {e}")
+        return []
+
+def supabase_insert(table, data):
+    """插入数据"""
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    try:
+        resp = requests.post(url, headers=HEADERS, json=data)
+        return resp.status_code in [200, 201, 204]
+    except Exception as e:
+        st.error(f"插入错误: {e}")
+        return False
+
+def supabase_update(table, data, filters):
+    """更新数据"""
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    try:
+        resp = requests.patch(url, headers=HEADERS, json=data, params=filters)
+        return resp.status_code in [200, 201, 204]
+    except Exception as e:
+        st.error(f"更新错误: {e}")
+        return False
+
+def supabase_delete(table, filters):
+    """删除数据"""
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    try:
+        resp = requests.delete(url, headers=HEADERS, params=filters)
+        return resp.status_code in [200, 201, 204]
+    except Exception as e:
+        st.error(f"删除错误: {e}")
+        return False
+
+# ============ 数据加载 ============
+@st.cache_data(ttl=60)
+def load_clients():
+    """加载客户列表"""
+    return supabase_select("clients", "?order=created_at.desc")
+
+@st.cache_data(ttl=60)
+def load_products():
+    """加载产品列表"""
+    return supabase_select("products", "?order=created_at.desc")
+
+@st.cache_data(ttl=60)
+def load_deliveries():
+    """加载送货单"""
+    return supabase_select("deliveries", "?order=delivery_date.desc")
+
+@st.cache_data(ttl=60)
+def load_payments():
+    """加载打款记录"""
+    return supabase_select("payments", "?order=payment_date.desc")
+
+@st.cache_data(ttl=60)
+def load_delivery_items(delivery_id):
+    """加载送货单明细"""
+    return supabase_select("delivery_items", f"?delivery_id=eq.{delivery_id}")
+
+# ============ 页面配置 ============
+st.set_page_config(
+    page_title="贸易管理系统",
+    page_icon="📦",
+    layout="wide"
+)
+
+# 自定义样式
+st.markdown("""
+<style>
+.stButton > button { width: 100%; }
+.main-header { font-size: 2rem; font-weight: bold; color: #1f77b4; text-align: center; padding: 1rem; }
+</style>
+""", unsafe_allow_html=True)
+
+# ============ 侧边栏 ============
+def render_sidebar():
+    with st.sidebar:
+        st.markdown("## 📦 贸易管理系统")
+        st.divider()
+        
+        pages = {
+            "📋 送货单管理": "送货单",
+            "💰 打款记录": "打款",
+            "📊 对账汇总": "对账",
+            "🏢 客户管理": "客户",
+            "📦 产品管理": "产品"
+        }
+        
+        for label, page in pages.items():
+            if st.button(label, use_container_width=True):
+                st.session_state.page = page
+                st.rerun()
+        
+        st.divider()
+        if st.button("🔄 刷新数据"):
+            st.cache_data.clear()
+            st.rerun()
+        st.caption(f"更新时间：{datetime.now().strftime('%H:%M:%S')}")
+    
+    return st.session_state.get("page", "送货单")
+
+# ============ 客户管理 ============
+def render_client_page():
+    st.markdown("## 🏢 客户管理")
+    
+    # 添加新客户
+    with st.expander("➕ 添加新客户", expanded=False):
+        with st.form("add_client"):
+            col1, col2 = st.columns(2)
+            with col1:
+                name = st.text_input("客户名称 *", placeholder="输入客户名称")
+                contact = st.text_input("联系人", placeholder="输入联系人姓名")
+            with col2:
+                phone = st.text_input("电话", placeholder="输入联系电话")
+                address = st.text_input("地址", placeholder="输入客户地址")
+            
+            if st.form_submit_button("保存客户"):
+                if name:
+                    new_client = {
+                        "id": hashlib.md5(str(datetime.now()).encode()).hexdigest()[:8],
+                        "name": name,
+                        "contact": contact,
+                        "phone": phone,
+                        "address": address
+                    }
+                    if supabase_insert("clients", new_client):
+                        st.success("✅ 客户添加成功！")
+                        st.cache_data.clear()
+                        st.rerun()
+                else:
+                    st.error("请输入客户名称")
+    
+    # 客户列表
+    st.markdown("### 客户列表")
+    clients = load_clients()
+    if clients:
+        df = pd.DataFrame(clients)
+        cols = [c for c in ["name", "contact", "phone", "address"] if c in df.columns]
+        df_display = df[cols].copy()
+        df_display.columns = ["客户名称", "联系人", "电话", "地址"]
+        st.dataframe(df_display, use_container_width=True)
+    else:
+        st.info("暂无客户，请添加第一个客户")
+
+# ============ 产品管理 ============
+def render_product_page():
+    st.markdown("## 📦 产品管理")
+    
+    with st.expander("➕ 添加新产品", expanded=False):
+        with st.form("add_product"):
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                name = st.text_input("产品名称 *", placeholder="输入产品名称")
+            with col2:
+                spec = st.text_input("规格型号", placeholder="输入规格")
+            with col3:
+                price = st.number_input("单价 (元)", min_value=0.0, step=0.01, format="%.2f")
+            
+            if st.form_submit_button("保存产品"):
+                if name:
+                    new_product = {
+                        "id": hashlib.md5(str(datetime.now()).encode()).hexdigest()[:8],
+                        "name": name,
+                        "spec": spec,
+                        "price": float(price),
+                        "stock": 0
+                    }
+                    if supabase_insert("products", new_product):
+                        st.success("✅ 产品添加成功！")
+                        st.cache_data.clear()
+                        st.rerun()
+                else:
+                    st.error("请输入产品名称")
+    
+    st.markdown("### 产品列表")
+    products = load_products()
+    if products:
+        df = pd.DataFrame(products)
+        cols = [c for c in ["name", "spec", "price", "stock"] if c in df.columns]
+        df_display = df[cols].copy()
+        df_display.columns = ["产品名称", "规格", "单价(元)", "库存"]
+        df_display["单价(元)"] = df_display["单价(元)"].apply(lambda x: f"¥{float(x):.2f}")
+        st.dataframe(df_display, use_container_width=True)
+    else:
+        st.info("暂无产品，请添加第一个产品")
+
+# ============ 送货单管理 ============
+def render_delivery_page():
+    st.markdown("## 📋 送货单管理")
+    clients = load_clients()
+    products = load_products()
+    
+    with st.expander("➕ 创建新送货单", expanded=False):
+        with st.form("add_delivery"):
+            col1, col2 = st.columns(2)
+            with col1:
+                client_name = st.selectbox("选择客户 *", 
+                    options=[""] + [c["name"] for c in clients], index=0)
+                delivery_date = st.date_input("送货日期", value=date.today())
+            with col2:
+                remark = st.text_input("备注", placeholder="可选备注信息")
+            
+            if products:
+                selected = st.multiselect("选择产品", 
+                    options=[f"{p['name']}|{p['price']}" for p in products])
+                
+                items_data = []
+                for item in selected:
+                    name, price = item.split("|")
+                    cols = st.columns([3, 1, 1])
+                    with cols[0]:
+                        st.write(f"📦 {name}")
+                    with cols[1]:
+                        qty = st.number_input("数量", min_value=1, value=1, key=f"qty_{item}")
+                    with cols[2]:
+                        st.write(f"¥{float(price) * qty:.2f}")
+                    items_data.append({"name": name, "price": float(price), "qty": qty})
+            else:
+                st.warning("请先添加产品")
+                items_data = []
+            
+            if st.form_submit_button("生成送货单"):
+                if client_name and items_data:
+                    total = sum(item["price"] * item["qty"] for item in items_data)
+                    delivery_id = hashlib.md5(str(datetime.now()).encode()).hexdigest()[:8]
+                    
+                    # 创建送货单
+                    delivery = {
+                        "id": delivery_id,
+                        "client_name": client_name,
+                        "delivery_date": str(delivery_date),
+                        "total": float(total),
+                        "remark": remark,
+                        "status": "unpaid"
+                    }
+                    
+                    if supabase_insert("deliveries", delivery):
+                        # 创建明细
+                        for item in items_data:
+                            item_rec = {
+                                "delivery_id": delivery_id,
+                                "product_name": item["name"],
+                                "price": item["price"],
+                                "qty": item["qty"],
+                                "subtotal": item["price"] * item["qty"]
+                            }
+                            supabase_insert("delivery_items", item_rec)
+                        
+                        st.success("✅ 送货单创建成功！")
+                        st.cache_data.clear()
+                        st.rerun()
+                else:
+                    st.error("请选择客户和产品")
+    
+    # 送货单列表
+    st.markdown("### 送货单列表")
+    deliveries = load_deliveries()
+    payments = load_payments()
+    
+    if deliveries:
+        filter_client = st.selectbox("筛选客户", 
+            options=["全部"] + [c["name"] for c in clients])
+        
+        filtered = deliveries if filter_client == "全部" else [d for d in deliveries if d.get("client_name") == filter_client]
+        
+        for d in filtered:
+            items = load_delivery_items(d["id"])
+            paid = sum(p["amount"] for p in payments if p.get("delivery_id") == d["id"])
+            
+            with st.expander(f"📋 #{d['id'][:8]} | {d['delivery_date']} | {d['client_name']} | ¥{d['total']:.2f}", expanded=False):
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    st.write(f"**客户：** {d['client_name']}")
+                    st.write(f"**备注：** {d.get('remark') or '无'}")
+                    
+                    if items:
+                        items_df = pd.DataFrame(items)
+                        items_df = items_df[["product_name", "qty", "price", "subtotal"]]
+                        items_df.columns = ["产品", "数量", "单价", "小计"]
+                        st.table(items_df)
+                
+                with col2:
+                    st.metric("总金额", f"¥{d['total']:.2f}")
+                    status = d.get("status", "unpaid")
+                    status_text = {"unpaid": "❌ 未付款", "partial": "⚠️ 部分付款", "paid": "✅ 已结清"}
+                    st.write(status_text.get(status, status))
+                    st.write(f"已付：¥{paid:.2f}")
+                    st.write(f"欠款：¥{d['total'] - paid:.2f}")
+    else:
+        st.info("暂无送货单")
+
+# ============ 打款记录 ============
+def render_payment_page():
+    st.markdown("## 💰 打款记录")
+    clients = load_clients()
+    
+    with st.expander("➕ 记录打款", expanded=False):
+        with st.form("add_payment"):
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                client_name = st.selectbox("选择客户 *",
+                    options=[""] + [c["name"] for c in clients], index=0)
+            with col2:
+                payment_date = st.date_input("付款日期", value=date.today())
+            with col3:
+                amount = st.number_input("付款金额 *", min_value=0.0, step=100.0, format="%.2f")
+            
+            remark = st.text_input("备注", placeholder="付款方式说明")
+            
+            if st.form_submit_button("保存打款记录"):
+                if client_name and amount > 0:
+                    new_payment = {
+                        "id": hashlib.md5(str(datetime.now()).encode()).hexdigest()[:8],
+                        "client_name": client_name,
+                        "payment_date": str(payment_date),
+                        "amount": float(amount),
+                        "remark": remark
+                    }
+                    if supabase_insert("payments", new_payment):
+                        st.success("✅ 打款记录保存成功！")
+                        st.cache_data.clear()
+                        st.rerun()
+                else:
+                    st.error("请选择客户并输入付款金额")
+    
+    st.markdown("### 付款记录")
+    payments = load_payments()
+    if payments:
+        df = pd.DataFrame(payments)
+        cols = [c for c in ["payment_date", "client_name", "amount", "remark"] if c in df.columns]
+        df_display = df[cols].copy()
+        df_display.columns = ["日期", "客户", "金额", "备注"]
+        df_display["金额"] = df_display["金额"].apply(lambda x: f"¥{float(x):.2f}")
+        st.dataframe(df_display, use_container_width=True)
+        
+        total = sum(p["amount"] for p in payments)
+        st.metric("💵 总付款额", f"¥{total:.2f}")
+    else:
+        st.info("暂无打款记录")
+
+# ============ 对账汇总 ============
+def render_reconciliation_page():
+    st.markdown("## 📊 对账汇总")
+    clients = load_clients()
+    deliveries = load_deliveries()
+    payments = load_payments()
+    
+    # 汇总
+    summary = {}
+    for client in clients:
+        cname = client["name"]
+        receivable = sum(d["total"] for d in deliveries if d.get("client_name") == cname)
+        paid = sum(p["amount"] for p in payments if p.get("client_name") == cname)
+        owed = receivable - paid
+        
+        summary[cname] = {
+            "receivable": receivable,
+            "paid": paid,
+            "owed": owed,
+            "status": "✅ 已结清" if owed <= 0 else "🔴 待收款"
+        }
+    
+    if summary:
+        df = pd.DataFrame([
+            {"客户": k, "应收": f"¥{v['receivable']:.2f}", 
+             "已收": f"¥{v['paid']:.2f}", "欠款": f"¥{v['owed']:.2f}", "状态": v['status']}
+            for k, v in summary.items()
+        ])
+        st.dataframe(df, use_container_width=True)
+        
+        # 总计
+        total_r = sum(v["receivable"] for v in summary.values())
+        total_p = sum(v["paid"] for v in summary.values())
+        total_o = sum(v["owed"] for v in summary.values())
+        
+        st.markdown("---")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("📦 总应收", f"¥{total_r:.2f}")
+        with col2:
+            st.metric("💰 总已收", f"¥{total_p:.2f}")
+        with col3:
+            st.metric("🔴 总欠款", f"¥{total_o:.2f}")
+    else:
+        st.info("暂无数据")
+    
+    # 详细对账单
+    st.markdown("### 📄 详细对账单")
+    if clients:
+        selected = st.selectbox("选择客户", options=[c["name"] for c in clients], key="detail_client")
+        
+        client_deliveries = [d for d in deliveries if d.get("client_name") == selected]
+        client_payments = [p for p in payments if p.get("client_name") == selected]
+        
+        if client_deliveries:
+            st.markdown(f"#### 📦 {selected} 的送货明细")
+            
+            for d in sorted(client_deliveries, key=lambda x: x["delivery_date"], reverse=True):
+                items = load_delivery_items(d["id"])
+                paid = sum(p["amount"] for p in client_payments if p.get("delivery_id") == d["id"])
+                
+                col1, col2, col3 = st.columns([2, 1, 1])
+                with col1:
+                    st.write(f"#{d['id'][:8]} | {d['delivery_date']}")
+                with col2:
+                    st.write(f"已付: ¥{paid:.2f}")
+                with col3:
+                    st.write(f"**¥{d['total']:.2f}**")
+            
+            total_r = sum(d["total"] for d in client_deliveries)
+            total_p = sum(p["amount"] for p in client_payments)
+            owed = total_r - total_p
+            
+            st.markdown("---")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown(f"**应收合计：¥{total_r:.2f}**")
+            with col2:
+                if owed > 0:
+                    st.markdown(f"**🔴 尚欠款：¥{owed:.2f}**")
+                else:
+                    st.markdown(f"**✅ 已结清**")
+        else:
+            st.info("该客户暂无送货记录")
+
+# ============ 主程序 ============
+def main():
+    if "page" not in st.session_state:
+        st.session_state.page = "送货单"
+    
+    page = render_sidebar()
+    
+    if page == "客户":
+        render_client_page()
+    elif page == "产品":
+        render_product_page()
+    elif page == "送货单":
+        render_delivery_page()
+    elif page == "打款":
+        render_payment_page()
+    elif page == "对账":
+        render_reconciliation_page()
+
+if __name__ == "__main__":
+    main()
