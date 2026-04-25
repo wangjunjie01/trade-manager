@@ -77,7 +77,7 @@ def update_password(username, new_password):
     password_hash = hashlib.sha256(new_password.encode()).hexdigest()
     data = {"password_hash": password_hash}
     try:
-        resp = requests.patch(url, headers=SERVICE_HEADERS, json=data)
+        resp = requests.patch(url, headers=HEADERS, json=data)
         return resp.status_code in [200, 201, 204]
     except:
         return False
@@ -98,7 +98,7 @@ def create_user_in_db(username, password, name, role="user"):
     
     url = f"{SUPABASE_URL}/rest/v1/users"
     try:
-        resp = requests.post(url, headers=SERVICE_HEADERS, json=user_data)
+        resp = requests.post(url, headers=HEADERS, json=user_data)
         return resp.status in [200, 201, 204]
     except:
         return False
@@ -154,7 +154,7 @@ def supabase_insert(table, data):
     """插入数据"""
     url = f"{SUPABASE_URL}/rest/v1/{table}"
     try:
-        resp = requests.post(url, headers=SERVICE_HEADERS, json=data)
+        resp = requests.post(url, headers=HEADERS, json=data)
         return resp.status_code in [200, 201, 204]
     except:
         return False
@@ -163,7 +163,7 @@ def supabase_delete(table, filters):
     """删除数据"""
     url = f"{SUPABASE_URL}/rest/v1/{table}"
     try:
-        resp = requests.delete(url, headers=SERVICE_HEADERS, params=filters)
+        resp = requests.delete(url, headers=HEADERS, params=filters)
         return resp.status_code in [200, 201, 204]
     except:
         return False
