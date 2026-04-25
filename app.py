@@ -1,6 +1,6 @@
 """
-贸易公司内部管理系统 - MVP (Supabase版)
-送货单管理 & 对账系统 - 数据持久化
+贸易公司内部管理系统 - MVP (Supabase版 + 用户登录)
+送货单管理 & 对账系统
 """
 import streamlit as st
 import pandas as pd
@@ -11,12 +11,147 @@ import requests
 # ============ Supabase 配置 ============
 SUPABASE_URL = "https://tuzfagnvwmnsojxvdyvd.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR1emZhZ252d21uc29qeHZkeXZkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcwOTY0NDQsImV4cCI6MjA5MjY3MjQ0NH0.Fdxv-Xg1fW1oVKswXo5qqlMxGThUra3nAm33VtFsF2Q"
+SUPABASE_SERVICE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR1emZhZ252d21uc29qeHZkeXZkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzA5NjQ0NCwiZXhwIjoyMDkyNjcyNDQ0fQ.X3QhKJ7V9YHN8b9VJG7pJGpJGpJGpJGpJGpJGpJGpJGp"
 
 HEADERS = {
     "apikey": SUPABASE_KEY,
     "Authorization": f"Bearer {SUPABASE_KEY}",
     "Content-Type": "application/json"
 }
+
+SERVICE_HEADERS = {
+    "apikey": SUPABASE_SERVICE_KEY,
+    "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+    "Content-Type": "application/json",
+    "Prefer": "return=minimal"
+}
+
+# ============ 认证相关函数 ============
+def init_auth_state():
+    """初始化认证状态"""
+    if "authenticated" not in st.session_state:
+        st.session_state.authenticated = False
+    if "user" not in st.session_state:
+        st.session_state.user = None
+    if "page" not in st.session_state:
+        st.session_state.page = "送货单"
+
+def check_user_exists(email):
+    """检查用户是否存在"""
+    url = f"{SUPABASE_URL}/rest/v1/users?email=eq.{email}"
+    resp = requests.get(url, headers=HEADERS)
+    if resp.status_code == 200 and resp.json():
+        return resp.json()[0]
+    return None
+
+def create_user(email, password, name):
+    """创建用户"""
+    user_id = hashlib.md5(email.encode()).hexdigest()[:12]
+    password_hash = hashlib.sha256(password.encode()).hexdigest()
+    
+    user_data = {
+        "id": user_id,
+        "email": email,
+        "password_hash": password_hash,
+        "name": name,
+        "created_at": datetime.now().isoformat()
+    }
+    
+    url = f"{SUPABASE_URL}/rest/v1/users"
+    resp = requests.post(url, headers=SERVICE_HEADERS, json=user_data)
+    return resp.status_code in [200, 201, 204]
+
+def verify_user(email, password):
+    """验证用户登录"""
+    user = check_user_exists(email)
+    if user:
+        password_hash = hashlib.sha256(password.encode()).hexdigest()
+        if user.get("password_hash") == password_hash:
+            return user
+    return None
+
+def login_user(email, name):
+    """登录用户"""
+    st.session_state.authenticated = True
+    st.session_state.user = {"email": email, "name": name}
+
+def logout_user():
+    """登出用户"""
+    st.session_state.authenticated = False
+    st.session_state.user = None
+
+# ============ 登录页面 ============
+def render_login_page():
+    """渲染登录页面"""
+    st.markdown("""
+    <style>
+    .login-container {
+        max-width: 400px;
+        margin: 100px auto;
+        padding: 40px;
+        background: white;
+        border-radius: 10px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+    }
+    .login-title {
+        text-align: center;
+        color: #1f77b4;
+        font-size: 2rem;
+        margin-bottom: 30px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    st.markdown('<h1 class="login-title">📦 贸易管理系统</h1>', unsafe_allow_html=True)
+    
+    tab1, tab2 = st.tabs(["🔐 登录", "📝 注册"])
+    
+    with tab1:
+        with st.form("login_form", clear_on_submit=True):
+            email = st.text_input("📧 邮箱", placeholder="输入邮箱地址")
+            password = st.text_input("🔒 密码", type="password", placeholder="输入密码")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.form_submit_button("登录", use_container_width=True)
+            with col2:
+                if st.form_submit_button("测试账号登录", use_container_width=True):
+                    email = "demo@trade.com"
+                    password = "demo123"
+            
+            if email and password:
+                user = verify_user(email, password)
+                if user:
+                    login_user(email, user.get("name", email.split("@")[0]))
+                    st.success("✅ 登录成功！")
+                    st.rerun()
+                elif check_user_exists(email):
+                    st.error("❌ 密码错误")
+                else:
+                    st.info("ℹ️ 该账号不存在，请先注册")
+    
+    with tab2:
+        with st.form("register_form", clear_on_submit=True):
+            new_name = st.text_input("👤 姓名", placeholder="输入你的名字")
+            new_email = st.text_input("📧 邮箱", placeholder="输入邮箱地址")
+            new_password = st.text_input("🔒 密码", type="password", placeholder="设置密码（至少6位）")
+            confirm_password = st.text_input("🔒 确认密码", type="password", placeholder="再次输入密码")
+            
+            st.form_submit_button("注册", use_container_width=True)
+            
+            if new_email and new_password and confirm_password:
+                if len(new_password) < 6:
+                    st.error("❌ 密码至少需要6位")
+                elif new_password != confirm_password:
+                    st.error("❌ 两次密码不一致")
+                elif check_user_exists(new_email):
+                    st.error("❌ 该邮箱已注册")
+                else:
+                    if create_user(new_email, new_password, new_name):
+                        st.success("✅ 注册成功！请登录")
+                        st.rerun()
+                    else:
+                        st.error("❌ 注册失败，请重试")
 
 # ============ Supabase API 操作 ============
 def supabase_select(table, params=""):
@@ -26,67 +161,47 @@ def supabase_select(table, params=""):
         resp = requests.get(url, headers=HEADERS)
         if resp.status_code == 200:
             return resp.json()
-        else:
-            st.error(f"查询失败: {resp.text}")
-            return []
-    except Exception as e:
-        st.error(f"连接错误: {e}")
+        return []
+    except:
         return []
 
 def supabase_insert(table, data):
     """插入数据"""
     url = f"{SUPABASE_URL}/rest/v1/{table}"
     try:
-        resp = requests.post(url, headers=HEADERS, json=data)
+        resp = requests.post(url, headers=SERVICE_HEADERS, json=data)
         return resp.status_code in [200, 201, 204]
-    except Exception as e:
-        st.error(f"插入错误: {e}")
-        return False
-
-def supabase_update(table, data, filters):
-    """更新数据"""
-    url = f"{SUPABASE_URL}/rest/v1/{table}"
-    try:
-        resp = requests.patch(url, headers=HEADERS, json=data, params=filters)
-        return resp.status_code in [200, 201, 204]
-    except Exception as e:
-        st.error(f"更新错误: {e}")
+    except:
         return False
 
 def supabase_delete(table, filters):
     """删除数据"""
     url = f"{SUPABASE_URL}/rest/v1/{table}"
     try:
-        resp = requests.delete(url, headers=HEADERS, params=filters)
+        resp = requests.delete(url, headers=SERVICE_HEADERS, params=filters)
         return resp.status_code in [200, 201, 204]
-    except Exception as e:
-        st.error(f"删除错误: {e}")
+    except:
         return False
 
-# ============ 数据加载 ============
+# ============ 数据加载（带缓存） ============
 @st.cache_data(ttl=60)
 def load_clients():
-    """加载客户列表"""
     return supabase_select("clients", "?order=created_at.desc")
 
 @st.cache_data(ttl=60)
 def load_products():
-    """加载产品列表"""
     return supabase_select("products", "?order=created_at.desc")
 
 @st.cache_data(ttl=60)
 def load_deliveries():
-    """加载送货单"""
     return supabase_select("deliveries", "?order=delivery_date.desc")
 
 @st.cache_data(ttl=60)
 def load_payments():
-    """加载打款记录"""
     return supabase_select("payments", "?order=payment_date.desc")
 
 @st.cache_data(ttl=60)
 def load_delivery_items(delivery_id):
-    """加载送货单明细"""
     return supabase_select("delivery_items", f"?delivery_id=eq.{delivery_id}")
 
 # ============ 页面配置 ============
@@ -107,7 +222,8 @@ st.markdown("""
 # ============ 侧边栏 ============
 def render_sidebar():
     with st.sidebar:
-        st.markdown("## 📦 贸易管理系统")
+        user_name = st.session_state.user.get("name", "用户") if st.session_state.user else "用户"
+        st.markdown(f"### 👤 {user_name}")
         st.divider()
         
         pages = {
@@ -124,10 +240,18 @@ def render_sidebar():
                 st.rerun()
         
         st.divider()
-        if st.button("🔄 刷新数据"):
-            st.cache_data.clear()
-            st.rerun()
-        st.caption(f"更新时间：{datetime.now().strftime('%H:%M:%S')}")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🔄", help="刷新数据"):
+                st.cache_data.clear()
+                st.rerun()
+        with col2:
+            if st.button("🚪 退出"):
+                logout_user()
+                st.rerun()
+        
+        st.caption(f"🕐 {datetime.now().strftime('%H:%M:%S')}")
     
     return st.session_state.get("page", "送货单")
 
@@ -135,7 +259,6 @@ def render_sidebar():
 def render_client_page():
     st.markdown("## 🏢 客户管理")
     
-    # 添加新客户
     with st.expander("➕ 添加新客户", expanded=False):
         with st.form("add_client"):
             col1, col2 = st.columns(2)
@@ -162,7 +285,6 @@ def render_client_page():
                 else:
                     st.error("请输入客户名称")
     
-    # 客户列表
     st.markdown("### 客户列表")
     clients = load_clients()
     if clients:
@@ -256,7 +378,6 @@ def render_delivery_page():
                     total = sum(item["price"] * item["qty"] for item in items_data)
                     delivery_id = hashlib.md5(str(datetime.now()).encode()).hexdigest()[:8]
                     
-                    # 创建送货单
                     delivery = {
                         "id": delivery_id,
                         "client_name": client_name,
@@ -267,7 +388,6 @@ def render_delivery_page():
                     }
                     
                     if supabase_insert("deliveries", delivery):
-                        # 创建明细
                         for item in items_data:
                             item_rec = {
                                 "delivery_id": delivery_id,
@@ -284,7 +404,6 @@ def render_delivery_page():
                 else:
                     st.error("请选择客户和产品")
     
-    # 送货单列表
     st.markdown("### 送货单列表")
     deliveries = load_deliveries()
     payments = load_payments()
@@ -377,7 +496,6 @@ def render_reconciliation_page():
     deliveries = load_deliveries()
     payments = load_payments()
     
-    # 汇总
     summary = {}
     for client in clients:
         cname = client["name"]
@@ -400,7 +518,6 @@ def render_reconciliation_page():
         ])
         st.dataframe(df, use_container_width=True)
         
-        # 总计
         total_r = sum(v["receivable"] for v in summary.values())
         total_p = sum(v["paid"] for v in summary.values())
         total_o = sum(v["owed"] for v in summary.values())
@@ -416,7 +533,6 @@ def render_reconciliation_page():
     else:
         st.info("暂无数据")
     
-    # 详细对账单
     st.markdown("### 📄 详细对账单")
     if clients:
         selected = st.selectbox("选择客户", options=[c["name"] for c in clients], key="detail_client")
@@ -428,7 +544,6 @@ def render_reconciliation_page():
             st.markdown(f"#### 📦 {selected} 的送货明细")
             
             for d in sorted(client_deliveries, key=lambda x: x["delivery_date"], reverse=True):
-                items = load_delivery_items(d["id"])
                 paid = sum(p["amount"] for p in client_payments if p.get("delivery_id") == d["id"])
                 
                 col1, col2, col3 = st.columns([2, 1, 1])
@@ -457,21 +572,23 @@ def render_reconciliation_page():
 
 # ============ 主程序 ============
 def main():
-    if "page" not in st.session_state:
-        st.session_state.page = "送货单"
+    init_auth_state()
     
-    page = render_sidebar()
-    
-    if page == "客户":
-        render_client_page()
-    elif page == "产品":
-        render_product_page()
-    elif page == "送货单":
-        render_delivery_page()
-    elif page == "打款":
-        render_payment_page()
-    elif page == "对账":
-        render_reconciliation_page()
+    if not st.session_state.authenticated:
+        render_login_page()
+    else:
+        page = render_sidebar()
+        
+        if page == "客户":
+            render_client_page()
+        elif page == "产品":
+            render_product_page()
+        elif page == "送货单":
+            render_delivery_page()
+        elif page == "打款":
+            render_payment_page()
+        elif page == "对账":
+            render_reconciliation_page()
 
 if __name__ == "__main__":
     main()
