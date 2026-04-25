@@ -189,6 +189,23 @@ def load_payments():
 def load_delivery_items(delivery_id):
     return supabase_select("delivery_items", f"?delivery_id=eq.{delivery_id}")
 
+# ============ 供应链数据加载 ============
+@st.cache_data(ttl=60)
+def load_suppliers():
+    return supabase_select("suppliers", "?order=created_at.desc")
+
+@st.cache_data(ttl=60)
+def load_supplier_contacts(supplier_id=None):
+    if supplier_id:
+        return supabase_select("supplier_contacts", f"?supplier_id=eq.{supplier_id}&order=created_at.desc")
+    return supabase_select("supplier_contacts", "?order=created_at.desc")
+
+@st.cache_data(ttl=60)
+def load_supplier_materials(supplier_id=None):
+    if supplier_id:
+        return supabase_select("supplier_materials", f"?supplier_id=eq.{supplier_id}&order=created_at.desc")
+    return supabase_select("supplier_materials", "?order=created_at.desc")
+
 # ============ 页面配置 ============
 st.set_page_config(
     page_title="贸易管理系统",
@@ -216,7 +233,8 @@ def render_sidebar():
             "💰 打款记录": "打款",
             "📊 对账汇总": "对账",
             "🏢 客户管理": "客户",
-            "📦 产品管理": "产品"
+            "📦 产品管理": "产品",
+            "🏭 上游供应链": "供应链"
         }
         
         for label, page in pages.items():
@@ -619,6 +637,225 @@ def render_reconciliation_page():
         else:
             st.info("该客户暂无送货记录")
 
+# ============ 上游供应链管理 ============
+def render_supply_chain_page():
+    st.markdown("## 🏭 上游供应链管理")
+    
+    suppliers = load_suppliers()
+    
+    # 选择供应商或新增
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        if suppliers:
+            selected = st.selectbox("选择供应商", 
+                options=[""] + [s["name"] for s in suppliers], 
+                key="supplier_select")
+        else:
+            st.info("暂无供应商，请先添加")
+            selected = ""
+    with col2:
+        st.markdown("")  # 占位
+        st.markdown("")
+        if st.button("➕ 添加供应商", use_container_width=True):
+            st.session_state["show_add_supplier"] = True
+    
+    # 添加供应商表单
+    if st.session_state.get("show_add_supplier", False):
+        with st.expander("➕ 添加新供应商", expanded=True):
+            with st.form("add_supplier", clear_on_submit=True):
+                st.markdown("### 📋 基本信息")
+                col1, col2 = st.columns(2)
+                with col1:
+                    name = st.text_input("单位名称 *", placeholder="输入供应商名称")
+                    address = st.text_input("地址", placeholder="输入详细地址")
+                    legal_person = st.text_input("法人", placeholder="输入法人姓名")
+                with col2:
+                    phone = st.text_input("电话", placeholder="输入联系电话")
+                    credit_code = st.text_input("统一社会信用代码", placeholder="18位统一社会信用代码")
+                    business_desc = st.text_input("相关业务", placeholder="主营业务描述")
+                
+                col3, col4 = st.columns(2)
+                with col3:
+                    bank_name = st.text_input("开户银行", placeholder="开户银行名称")
+                with col4:
+                    bank_account = st.text_input("银行账号", placeholder="银行账号")
+                
+                if st.form_submit_button("💾 保存供应商"):
+                    if name:
+                        supplier_id = hashlib.md5(str(datetime.now()).encode()).hexdigest()[:12]
+                        new_supplier = {
+                            "id": supplier_id,
+                            "name": name,
+                            "address": address,
+                            "legal_person": legal_person,
+                            "phone": phone,
+                            "credit_code": credit_code,
+                            "bank_name": bank_name,
+                            "bank_account": bank_account,
+                            "business_desc": business_desc
+                        }
+                        if supabase_insert("suppliers", new_supplier):
+                            st.success("✅ 供应商添加成功！")
+                            st.session_state["show_add_supplier"] = False
+                            st.cache_data.clear()
+                            st.rerun()
+                        else:
+                            st.error("❌ 添加失败，请确保已在 Supabase 创建表")
+                    else:
+                        st.error("请输入单位名称")
+                
+                if st.button("取消", key="cancel_add_supplier"):
+                    st.session_state["show_add_supplier"] = False
+                    st.rerun()
+    
+    # 供应商详情
+    if selected:
+        supplier = next((s for s in suppliers if s["name"] == selected), None)
+        if supplier:
+            st.markdown("---")
+            st.markdown(f"### 📋 {supplier['name']} - 基本信息")
+            
+            # 基本信息卡片
+            info_cols = {
+                "单位名称": supplier.get("name", "-"),
+                "地址": supplier.get("address", "-"),
+                "法人": supplier.get("legal_person", "-"),
+                "电话": supplier.get("phone", "-"),
+                "统一社会信用代码": supplier.get("credit_code", "-"),
+                "开户银行": supplier.get("bank_name", "-"),
+                "银行账号": supplier.get("bank_account", "-"),
+                "相关业务": supplier.get("business_desc", "-")
+            }
+            
+            # 显示为两列布局
+            items = list(info_cols.items())
+            mid = len(items) // 2
+            col1, col2 = st.columns(2)
+            for i, (key, val) in enumerate(items):
+                with col1 if i < mid else col2:
+                    st.text_input(f"📌 {key}", value=val, disabled=True, key=f"info_{key}")
+            
+            # 人员信息标签页
+            st.markdown("---")
+            st.markdown("### 👥 人员信息")
+            
+            contacts = load_supplier_contacts(supplier["id"])
+            
+            with st.expander("➕ 添加人员", expanded=False):
+                with st.form(f"add_contact_{supplier['id']}"):
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        c_name = st.text_input("姓名 *", placeholder="人员姓名")
+                        c_position = st.text_input("职务", placeholder="如：采购经理")
+                    with c2:
+                        c_phone = st.text_input("联系电话", placeholder="手机号码")
+                        c_wechat = st.text_input("微信", placeholder="微信号")
+                    
+                    c_company = st.text_input("所属公司", placeholder="所属公司（可填供应商名称）")
+                    c_remark = st.text_input("备注", placeholder="其他说明")
+                    
+                    if st.form_submit_button("💾 保存人员"):
+                        if c_name:
+                            new_contact = {
+                                "id": hashlib.md5(str(datetime.now()).encode()).hexdigest()[:12],
+                                "supplier_id": supplier["id"],
+                                "name": c_name,
+                                "position": c_position,
+                                "company": c_company or supplier["name"],
+                                "phone": c_phone,
+                                "wechat": c_wechat,
+                                "remark": c_remark
+                            }
+                            if supabase_insert("supplier_contacts", new_contact):
+                                st.success("✅ 人员添加成功！")
+                                st.cache_data.clear()
+                                st.rerun()
+                        else:
+                            st.error("请输入姓名")
+            
+            if contacts:
+                contacts_df = pd.DataFrame(contacts)
+                display_cols = ["name", "position", "company", "phone", "wechat", "remark"]
+                available = [c for c in display_cols if c in contacts_df.columns]
+                contacts_df = contacts_df[available].copy()
+                contacts_df.columns = ["姓名", "职务", "所属公司", "电话", "微信", "备注"]
+                st.dataframe(contacts_df, use_container_width=True)
+            else:
+                st.info("暂无人员信息")
+            
+            # 物料信息标签页
+            st.markdown("---")
+            st.markdown("### 📦 相关物料")
+            
+            materials = load_supplier_materials(supplier["id"])
+            
+            with st.expander("➕ 添加物料", expanded=False):
+                with st.form(f"add_material_{supplier['id']}"):
+                    m1, m2, m3 = st.columns(3)
+                    with m1:
+                        m_name = st.text_input("物料名称 *", placeholder="物料名称")
+                        m_spec = st.text_input("规格", placeholder="规格型号")
+                    with m2:
+                        m_unit = st.text_input("单位", placeholder="如：个、米、吨")
+                        m_price_excl = st.number_input("不含税单价", min_value=0.0, step=0.01, format="%.2f")
+                    with m3:
+                        m_tax_rate = st.selectbox("税率", options=[0.13, 0.09, 0.06, 0.03, 0.0], index=0, format_func=lambda x: f"{x*100:.0f}%")
+                        m_incl_tax = st.number_input("含税单价", min_value=0.0, step=0.01, format="%.2f", value=m_price_excl * (1 + m_tax_rate))
+                    
+                    m_freight = st.selectbox("是否含运", options=["否", "是"])
+                    m_remark = st.text_input("备注", placeholder="其他说明")
+                    
+                    if st.form_submit_button("💾 保存物料"):
+                        if m_name:
+                            new_material = {
+                                "id": hashlib.md5(str(datetime.now()).encode()).hexdigest()[:12],
+                                "supplier_id": supplier["id"],
+                                "name": m_name,
+                                "spec": m_spec,
+                                "unit": m_unit,
+                                "price_excl_tax": float(m_price_excl),
+                                "tax_rate": float(m_tax_rate),
+                                "price_incl_tax": float(m_incl_tax),
+                                "includes_freight": m_freight,
+                                "remark": m_remark
+                            }
+                            if supabase_insert("supplier_materials", new_material):
+                                st.success("✅ 物料添加成功！")
+                                st.cache_data.clear()
+                                st.rerun()
+                        else:
+                            st.error("请输入物料名称")
+            
+            if materials:
+                materials_df = pd.DataFrame(materials)
+                display_cols = ["name", "spec", "unit", "price_excl_tax", "tax_rate", "price_incl_tax", "includes_freight", "remark"]
+                available = [c for c in display_cols if c in materials_df.columns]
+                materials_df = materials_df[available].copy()
+                materials_df.columns = ["物料名称", "规格", "单位", "不含税单价", "税率", "含税单价", "含运", "备注"]
+                # 格式化显示
+                materials_df["不含税单价"] = materials_df["不含税单价"].apply(lambda x: f"¥{float(x):.2f}")
+                materials_df["含税单价"] = materials_df["含税单价"].apply(lambda x: f"¥{float(x):.2f}")
+                materials_df["税率"] = materials_df["税率"].apply(lambda x: f"{float(x)*100:.0f}%")
+                st.dataframe(materials_df, use_container_width=True)
+            else:
+                st.info("暂无物料信息")
+    
+    # 供应商总览
+    if suppliers:
+        st.markdown("---")
+        st.markdown("### 📊 供应商总览")
+        
+        overview_cols = ["name", "legal_person", "phone", "business_desc"]
+        df = pd.DataFrame(suppliers)
+        available = [c for c in overview_cols if c in df.columns]
+        if available:
+            df_overview = df[available].copy()
+            df_overview.columns = ["单位名称", "法人", "电话", "相关业务"]
+            st.dataframe(df_overview, use_container_width=True)
+        
+        st.markdown(f"**共 {len(suppliers)} 家供应商**")
+
+
 # ============ 主程序 ============
 def main():
     init_auth_state()
@@ -638,6 +875,8 @@ def main():
             render_payment_page()
         elif page == "对账":
             render_reconciliation_page()
+        elif page == "供应链":
+            render_supply_chain_page()
         elif page == "用户管理":
             render_user_management_page()
 
